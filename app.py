@@ -7,7 +7,6 @@ import json
 
 # --- 1. 設定 API 金鑰 ---
 try:
-    # 讀取並去除可能的多餘空白
     api_key = st.secrets["GOOGLE_API_KEY"].strip()
 except Exception:
     st.error("找不到 API Key，請在 Secrets 設定中填入 GOOGLE_API_KEY")
@@ -21,25 +20,41 @@ def analyze_cabinet(image):
     image.save(buffered, format="JPEG")
     img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-    # 2. 準備請求 (改用更穩定的 gemini-2.5-flash)
+    # 2. 準備請求 (使用 Gemini 2.5 Flash)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     headers = {
         "Content-Type": "application/json"
     }
     
+    # --- 關鍵修改：更精確的提示詞 (Prompt) ---
     prompt_text = """
-    這是一個由 01 到 48 號組成的與手機保管櫃。
-    請仔細觀察圖片，找出哪些號碼的格子是「空的」（沒有放手機）。
+    【角色設定】
+    你是一個嚴格的手機保管櫃檢查員。你的任務是找出哪些格子是「空的（缺交）」。
+
+    【場景描述】
+    1. 這是一個手機櫃，每個格子下方有藍色標籤與白色數字。
+    2. 格子內部是「深色/黑色的防撞泡棉」。
+
+    【判斷標準 - 請仔細閱讀】
+    * **判定為「空 (缺交)」**：
+        * 你可以清楚看到格子深處的「黑色泡棉質感」或「黑色陰影」。
+        * 格子內沒有任何雜物。
     
-    規則：
-    1. 格子裡如果有手機（無論顏色），視為「已交」。
-    2. 格子裡如果只有深色的防撞泡棉背景，視為「缺交（空）」。
-    3. 格子下方的藍色標籤上有白色數字。
-    4. 請忽略反光，專注辨識空格。
+    * **判定為「有手機 (已交)」**：
+        * 格子內有「反光物體」、「彩色手機殼」或「螢幕」。
+        * 原本深色的背景被物體擋住了。
+        * 即使只看到手機的一角，也要算作「已交」。
     
-    請直接回傳缺交的號碼列表，用逗號分隔，不要有其他文字。
+    【思考步驟】
+    1. 先辨識出圖片中所有的數字標籤。
+    2. 對應每個標籤，往上看該格子的內容。
+    3. 嚴格區分「黑色泡棉(空)」與「黑色手機(有物體)」。黑色手機通常會有光澤或邊框。
+
+    【輸出格式】
+    請直接列出「缺交」的號碼，用逗號分隔。
     例如: 03, 08, 12, 45
+    (如果全部都交了，請回答：None)
     """
     
     payload = {
@@ -67,7 +82,7 @@ def analyze_cabinet(image):
             except (KeyError, IndexError):
                 return "AI 回傳了無法解析的資料，請再試一次。"
         elif response.status_code == 429:
-             return "太頻繁了！請休息 1 分鐘後再試 (Google 限制每分鐘使用次數)。"
+             return "太頻繁了！請休息 1 分鐘後再試 (Google 免費版限制)。"
         else:
             return f"連線錯誤 (代碼 {response.status_code}): {response.text}"
             
@@ -76,7 +91,9 @@ def analyze_cabinet(image):
 
 # --- 3. 網頁介面 ---
 st.set_page_config(page_title="手機櫃缺交偵測", page_icon="📱")
-st.title("📱 手機櫃缺交偵測")
+st.title("📱 手機櫃缺交偵測 (精準版)")
+
+st.info("💡 拍照技巧：請盡量正面拍攝，避免反光太強，讓數字清晰可見。")
 
 img_file_buffer = st.camera_input("📸 拍照")
 uploaded_file = st.file_uploader("或上傳照片", type=["jpg", "jpeg", "png"])
@@ -92,7 +109,7 @@ if image_to_process:
     st.image(image_to_process, caption="已讀取照片", use_container_width=True)
     
     if st.button("🔍 開始辨識", type="primary"):
-        with st.spinner('正在使用 Gemini 2.5 Flash 辨識中...'):
+        with st.spinner('AI 正在仔細檢查每一個格子...'):
             result = analyze_cabinet(image_to_process)
             
         if "錯誤" in result or "頻繁" in result:
