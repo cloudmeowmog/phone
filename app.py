@@ -1,22 +1,32 @@
 import streamlit as st
-import google.generativeai as genai
+import requests
+import base64
+import io
 from PIL import Image
 
-# --- 1. 設定 API ---
+# --- 1. 設定 API 金鑰 ---
 try:
     api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
 except Exception:
     st.error("找不到 API Key，請在 Secrets 設定中填入 GOOGLE_API_KEY")
     st.stop()
 
-# --- 2. 設定 AI 模型 ---
-# 使用官方 SDK 呼叫 Gemini 1.5 Flash
-model = genai.GenerativeModel('gemini-1.5-flash')
-
 def analyze_cabinet(image):
-    """傳送圖片給 AI 進行分析"""
-    prompt = """
+    """使用 REST API 直接呼叫 Gemini，不需安裝 SDK"""
+    
+    # 1. 將圖片轉為 Base64 格式
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+    # 2. 準備請求資料 (JSON)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
+    prompt_text = """
     這是一個由 01 到 48 號組成的與手機保管櫃。
     請仔細觀察圖片，找出哪些號碼的格子是「空的」（沒有放手機）。
     
@@ -30,10 +40,34 @@ def analyze_cabinet(image):
     例如: 03, 08, 12, 45
     """
     
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt_text},
+                {
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": img_b64
+                    }
+                }
+            ]
+        }]
+    }
+
+    # 3. 發送請求
     try:
-        # 官方 SDK 支援直接傳送 PIL Image 物件
-        response = model.generate_content([prompt, image])
-        return response.text
+        response = requests.post(url, headers=headers, json=payload)
+        
+        if response.status_code == 200:
+            result = response.json()
+            # 解析回傳的文字
+            try:
+                return result['candidates'][0]['content']['parts'][0]['text']
+            except (KeyError, IndexError):
+                return "AI 回傳了無法解析的資料，請重試。"
+        else:
+            return f"連線錯誤 (代碼 {response.status_code}): {response.text}"
+            
     except Exception as e:
         return f"發生錯誤: {e}"
 
