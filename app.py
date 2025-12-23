@@ -14,15 +14,15 @@ except Exception:
     st.stop()
 
 def analyze_cabinet(image):
-    """使用 REST API 直接呼叫 Gemini 2.0"""
+    """使用 REST API 直接呼叫 Gemini 2.5 Flash"""
     
     # 1. 將圖片轉為 Base64
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
     img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-    # 2. 準備請求 (改用您的帳號支援的 gemini-2.0-flash-exp)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={api_key}"
+    # 2. 準備請求 (改用更穩定的 gemini-2.5-flash)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     headers = {
         "Content-Type": "application/json"
@@ -66,6 +66,8 @@ def analyze_cabinet(image):
                 return result['candidates'][0]['content']['parts'][0]['text']
             except (KeyError, IndexError):
                 return "AI 回傳了無法解析的資料，請再試一次。"
+        elif response.status_code == 429:
+             return "太頻繁了！請休息 1 分鐘後再試 (Google 限制每分鐘使用次數)。"
         else:
             return f"連線錯誤 (代碼 {response.status_code}): {response.text}"
             
@@ -90,10 +92,10 @@ if image_to_process:
     st.image(image_to_process, caption="已讀取照片", use_container_width=True)
     
     if st.button("🔍 開始辨識", type="primary"):
-        with st.spinner('正在使用最新的 Gemini 2.0 模型辨識中...'):
+        with st.spinner('正在使用 Gemini 2.5 Flash 辨識中...'):
             result = analyze_cabinet(image_to_process)
             
-        if "連線錯誤" in result:
+        if "錯誤" in result or "頻繁" in result:
             st.error(result)
         else:
             st.success("辨識完成！")
